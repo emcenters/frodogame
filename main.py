@@ -1,34 +1,21 @@
 # Example file showing a circle moving on screen
 import pygame
-class Button(pygame.sprite.Sprite):
-    x_pos = 0
-    y_pos = 0
-    def __init__(self, image_path, x, y):
-       pygame.sprite.Sprite.__init__(self)
-       self.image = pygame.image.load(image_path).convert_alpha()
-       self.rect = self.image.get_rect(center = (x, y))
+import game_graphics
 
-    def update(self):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_w]:
-            self.rect.y -= 300 * dt       
-        if keys[pygame.K_s]:
-            self.rect.y += 300 * dt
-        if keys[pygame.K_a]:
-            self.rect.x -= 300 * dt
-        if keys[pygame.K_d]:
-            self.rect.x += 300 * dt
-       
 # pygame setup
 pygame.init()
-screen = pygame.display.set_mode((1280, 720))
+screen = pygame.display.set_mode((640, 480))
+background = pygame.Surface(screen.get_size())
+background.fill('white')
+screen.blit(background, (0, 0))
+pygame.display.flip()
+
 clock = pygame.time.Clock()
 running = True
 dt = 0
 
-button = Button("res/button4.png", screen.get_width() / 2, screen.get_height() / 2)
-sprites = pygame.sprite.Group()
-sprites.add(button)
+sprites = pygame.sprite.LayeredDirty()
+player = game_graphics.Player("res/red_player/", screen.get_width()/2, screen.get_height()/2, sprites)
 
 while running:
     # poll for events
@@ -36,15 +23,30 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-
+        dx, dy = 0, 0
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_w]:
+            player.set_direction(1)
+            dy -= 300 * dt       
+        if keys[pygame.K_s]:
+            player.set_direction(0)
+            dy += 300 * dt
+        if keys[pygame.K_a]:
+            player.set_direction(2)
+            dx -= 300 * dt
+        if keys[pygame.K_d]:
+            player.set_direction(3)
+            dx += 300 * dt
     # fill the screen with a color to wipe away anything from last frame
-    screen.fill("white")
+    # screen.fill("white")
 
     # pygame.draw.circle(screen, "red", player_pos, 40)
     # pygame.draw(Button(screen, 200, 200))
-
-    sprites.update()
-    sprites.draw(screen)
+    
+    sprites.update(dx, dy)
+    # sprites.draw(screen)
+    dirty_rects = sprites.draw(screen, background)
+    pygame.display.update(dirty_rects)
 
     # flip() the display to put your work on screen
     pygame.display.flip()
@@ -53,6 +55,5 @@ while running:
     # dt is delta time in seconds since last frame, used for framerate-
     # independent physics.
     dt = clock.tick(60) / 1000
-    print(pygame.time.get_ticks()//1000)
 
 pygame.quit()
