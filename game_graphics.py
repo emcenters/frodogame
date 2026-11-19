@@ -7,10 +7,10 @@ class Player(pygame.sprite.DirtySprite):
     current_sprite = 0
 
     def __init__(self, image_path, x, y, *groups):
+        self._layer = 3
         super().__init__(*groups)
     # Load individual animation frames into a list
         self.sprites = self.load_images(image_path)
-        self._layer = 3
         self.direction = 0
         self.image = self.sprites[self.direction][self.current_sprite]
         self.rect = self.image.get_rect(center=(x, y))
@@ -25,10 +25,14 @@ class Player(pygame.sprite.DirtySprite):
         return sprites
     def set_direction(self, direction_name):
         directions = ["down", "up", "left", "right"]
-        if not str.lower(direction_name) in directions:
-            print("Type Error: direction not value, game_graphics line 23")
-        else:
+        try:
             self.direction = directions.index(str.lower(direction_name))
+        except:
+            print("Type Error: direction not value, game_graphics Player line 23")
+            
+
+    def get_size(self):
+        return self.rect.width, self.rect.height
 
     def update(self, dx, dy):
         if dx != 0 or dy != 0:
@@ -44,12 +48,23 @@ class Player(pygame.sprite.DirtySprite):
         self.image = self.sprites[self.direction][int(self.current_sprite)]
 
 class Background(pygame.sprite.DirtySprite):
-    def __init__(self, image_name, screen_center, *groups):
+    player_size = (16, 16)
+    def __init__(self, image_name, screen_center, player_size, *groups):
+        self._layer = 0  # Lowest layer, draws behind all the other sprites
         super().__init__(*groups)
-        self._layer = 0  # Lowest layer so it draws behind everything
         self.image = pygame.image.load("res/bgd/"+image_name).convert_alpha()
-        self.rect = self.image.get_rect(center = screen_center)
+        self.rect = self.image.get_rect(center = screen_center) # Sets the center of the image to the center given
         print(self.rect.x, self.rect.y)
+        initial_coords = {"x": self.rect.x, "y": self.rect.y}
+        self.x_bounds = (initial_coords["x"]-int(self.rect.width/2), initial_coords["x"]+self.rect.width/2)
+        self.y_bounds = (initial_coords["y"]-int(self.rect.height/2), initial_coords["y"]+self.rect.height/2)
+        if isinstance(player_size, (int, float)) and isinstance(player_size, bool): # check if player_size is singular num (square) or tuple
+            self.player_size = (player_size, player_size)
+        else:
+            try:
+                self.player_size = (player_size[0], player_size[1])
+            except:
+                print("Not valid player_size, game_graphics Background line 61")
         self.dirty = 1
 
     def update(self, dx, dy):
@@ -57,19 +72,15 @@ class Background(pygame.sprite.DirtySprite):
         if dx != 0 or dy != 0:
             self.rect.x -= dx
             self.rect.y -= dy
+            if self.rect.x-self.player_size[0] <= self.x_bounds[0]:
+                self.rect.x = self.x_bounds[0]+self.player_size[0]
+            if self.rect.x+self.player_size[0] >= self.x_bounds[1]:
+                self.rect.x = self.x_bounds[1]-self.player_size[0]
+            if self.rect.y-self.player_size[1] <= self.y_bounds[0]:
+                self.rect.y = self.y_bounds[0]+self.player_size[1]
+            if self.rect.y+self.player_size[1] >= self.y_bounds[1]:
+                self.rect.y = self.y_bounds[1]-self.player_size[1]
             self.dirty = 1
-            if self.rect.x-48 <= -1600:
-                self.rect.x = -1600+48
-                self.dirty = 1
-            if self.rect.x+48 >= 320:
-                self.rect.x = 320-48
-                self.dirty = 1
-            if self.rect.y-48 <= -840:
-                self.rect.y = -840+48
-                self.dirty = 1
-            if self.rect.y+48 >= 240:
-                self.rect.y = 240-48
-                self.dirty = 1
 
     def get_size(self):
         return self.rect.width, self.rect.height
