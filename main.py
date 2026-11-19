@@ -14,8 +14,8 @@ running = True
 dt = 0
 
 sprites = pygame.sprite.LayeredDirty()
+background = game_graphics.Background("bgd.png", screen.get_rect().center, sprites)
 player = game_graphics.Player("res/red_player/", screen.get_width()/2, screen.get_height()/2, sprites)
-background = game_graphics.Background("bgd.png", sprites)
 # game loop that runs until the player hits to close window
 while running:
     for event in pygame.event.get():
