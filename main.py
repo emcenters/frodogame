@@ -21,7 +21,6 @@ background = game_graphics.Background("bgd.png", screen.get_rect().center, playe
 # game loop that runs until the player hits to close window
 while running:
     for event in pygame.event.get():
-        
         if event.type == pygame.QUIT:
             running = False
         dx, dy = 0, 0
