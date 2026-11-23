@@ -1,5 +1,6 @@
 import random
 
+
 def directions():
     """Team-written: Create a list of correct directions for the maze"""
     options = ["L", "R"]
@@ -15,7 +16,6 @@ def maze(key):
     win = False
     while (win == False):
         correct_guesses = []    
-        
         
         for i in key:
             direction_guess = ''
@@ -41,5 +41,11 @@ def main():
 
     maze(key)
     
-main()
-print("Yay! Frodo gets a new letter, Q.")
+# main()
+# print("Yay! Frodo gets a new letter, Q.")
+
+
+def check_guess(guess):
+     pass
+    # if guess == "L":
+    # elif guess == "R":

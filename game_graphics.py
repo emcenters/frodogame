@@ -1,22 +1,27 @@
 import pygame
 
 class Player(pygame.sprite.DirtySprite):
-    # sprite global variables
+    # sprite global static variables
     total_sprite_counter = 8
     sprite_speed = 0.3
     current_sprite = 0
+    UP = 0
+    DOWN = 1
+    LEFT = 2
+    RIGHT = 3
+    directions = {DOWN: "down", UP: "up", LEFT: "left", RIGHT: "right"}
 
-    def __init__(self, image_path, is_sheet, x, y, *groups):
-        self._layer = 3
+    def __init__(self, image_path, is_sheet, x, y, layer, *groups):
+        self._layer = layer
         super().__init__(*groups)
     # Load individual animation frames into a list
         self.sprites = self.load_images(is_sheet, 3, image_path)
-        self.direction = 0
+        self.direction = 2
         self.image = self.sprites[self.direction][self.current_sprite]
         self.rect = self.image.get_rect(center=(x, y))
 
     def load_images(self, is_sheet, factor, image_path="res/"):
-        sprites = {0: [], 1: [], 2: [], 3: []}
+        sprites = {self.UP: [], self.DOWN: [], self.LEFT: [], self.RIGHT: []}
         if not is_sheet:
             counter, directions = 0, ["down", "up", "left", "right"]
             for i in range(16):
@@ -24,22 +29,33 @@ class Player(pygame.sprite.DirtySprite):
                     counter += 1
                 sprites[counter].append(pygame.transform.scale_by(pygame.image.load(image_path+directions[counter]+str(i%4)+".png").convert_alpha(), factor))
         elif is_sheet:
-            counter, directions = 0, ["down", "up", "left", "right"]
-            for direction in directions:
-                sprites[counter] = SpriteSplitter.split_sheet(image_path+direction+".png", factor)
-                counter += 1
+            for key in self.directions:
+                sprites[key] = self.split_sheet(image_path+self.directions[key]+".png", factor)
         return sprites
+    
+    def split_sheet(self, file_path, factor = 1, width = 40, height = 40):
+            sheet = pygame.transform.scale_by(pygame.image.load(file_path).convert_alpha(), factor)
+            cols = sheet.get_rect().width//(width*factor)
+            rows = sheet.get_rect().height//(height*factor)
+            sprite_images = []
+            for i in range(rows):
+                for j in range(cols):
+                    sprite_size = pygame.Rect(j*width*factor, i*height*factor, width*factor, height*factor)
+                    sprite = sheet.subsurface(sprite_size).convert_alpha()
+                    sprite_images.append(sprite)
+            return sprite_images
 
     def set_direction(self, direction_name):
-        directions = ["down", "up", "left", "right"]
         try:
-            self.direction = directions.index(str.lower(direction_name))
+            self.direction = next((key for key, value in self.directions.items() if value == direction_name), None)
         except:
-            print("Type Error: direction not value, game_graphics Player line 23")
+            print("Type Error: direction not value, game_graphics Player line 52")
             
 
     def get_size(self):
         return self.rect.width, self.rect.height
+    def get_coords(self):
+        return self.rect.x, self.rect.y
 
     def update(self, dx, dy):
         if dx != 0 or dy != 0:
@@ -56,10 +72,10 @@ class Player(pygame.sprite.DirtySprite):
 
 class Background(pygame.sprite.DirtySprite):
     player_size = (16, 16)
-    def __init__(self, image_name, screen_center, player_size, *groups):
-        self._layer = 0  # Lowest layer, draws behind all the other sprites
+    def __init__(self, image_name, screen_center, player_size, layer, *groups):
+        self._layer = layer
         super().__init__(*groups)
-        self.image = pygame.image.load("res/bgd/"+image_name).convert_alpha()
+        self.image = pygame.transform.scale_by(pygame.image.load("res/bgd/"+image_name).convert_alpha(), 1)
         self.rect = self.image.get_rect(center = screen_center) # Sets the center of the image to the center given
         # print(self.rect.x, self.rect.y)
         initial_coords = {"x": self.rect.x, "y": self.rect.y}
@@ -91,17 +107,3 @@ class Background(pygame.sprite.DirtySprite):
 
     def get_size(self):
         return self.rect.width, self.rect.height
-    
-
-class SpriteSplitter():
-    def split_sheet(file_path, factor = 1, width = 40, height = 40):
-        sheet = pygame.transform.scale_by(pygame.image.load(file_path).convert_alpha(), factor)
-        cols = sheet.get_rect().width//(width*factor)
-        rows = sheet.get_rect().height//(height*factor)
-        sprite_images = []
-        for i in range(rows):
-            for j in range(cols):
-                sprite_size = pygame.Rect(j*width*factor, i*height*factor, width*factor, height*factor)
-                sprite = sheet.subsurface(sprite_size).convert_alpha()
-                sprite_images.append(sprite)
-        return sprite_images

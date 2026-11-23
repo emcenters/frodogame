@@ -139,7 +139,7 @@ def wordle():
             break
 
 
-wordle()
+# wordle()
 
 
 

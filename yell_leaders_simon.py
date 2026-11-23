@@ -113,7 +113,7 @@ def yell_leaders_play_loop():
             # Let me know if this should return something for the game's fail condition
 
 # I put the whole game loop into a function so it can be easier to call in the main game loop
-letter = yell_leaders_play_loop()
+# letter = yell_leaders_play_loop()
 
 
 
