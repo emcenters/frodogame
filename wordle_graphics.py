@@ -1,286 +1,245 @@
 import random
 import pygame
 
-# Screen & layout
-WIDTH, HEIGHT = 640, 640
+import frodo_wordle as logic
 
-ROWS, COLS = 6, 5
-TILE_SIZE = 58
-GAP = 8
-GRID_WIDTH = COLS * TILE_SIZE + (COLS - 1) * GAP
-START_X = (WIDTH - GRID_WIDTH) // 2
-START_Y = 95
-
-# Colors
-BG_COLOR = (18, 18, 19)
-TILE_EMPTY = (18, 18, 19)
-TILE_BORDER = (58, 58, 60)
-TILE_ACTIVE = (129, 131, 132)
-KEY_UNUSED = (129, 131, 132)
-GREEN = (83, 141, 78)       # code 2: right letter, right spot
-YELLOW = (181, 159, 59)     # code 1: right letter, wrong spot
-GRAY = (58, 58, 60)         # code 0: not in word
-WHITE = (255, 255, 255)
-AGGIE_MAROON = (155, 45, 62)
-TEXT_MUTED = (185, 185, 190)
-
-STATUS_TO_COLOR = {
-    -1: KEY_UNUSED,
-    0: GRAY,
-    1: YELLOW,
-    2: GREEN,
+# ---------- colors ----------
+BG = (18, 18, 19)
+TILE_EMPTY = (58, 58, 60)
+TILE_FILLED = (86, 87, 88)
+TEXT = (255, 255, 255)
+SUBTEXT = (170, 170, 175)
+MAROON = (80, 0, 0)  # Aggie maroon
+STATE_COLORS = {
+    2: (83, 141, 78),    # green  - right spot
+    1: (181, 159, 59),   # yellow - wrong spot
+    0: (58, 58, 60),     # gray   - not in word
 }
-pygame.init()
-# Fonts
-font_title = pygame.font.SysFont("arial", 30, bold=True)
-font_tile = pygame.font.SysFont("arial", 30, bold=True)
-font_msg = pygame.font.SysFont("arial", 18, bold=True)
-font_key = pygame.font.SysFont("arial", 16, bold=True)
-
-KEYBOARD_ROWS = [
-    ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
-    ["A", "S", "D", "F", "G", "H", "J", "K", "L"],
-    ["Z", "X", "C", "V", "B", "N", "M"],
-]
-
-# --- Team Logic ---
-
-def wordbank(filename="wordle_words.txt"):
-    """Return a list of possible 5-letter TAMU-related words."""
-    try:
-        with open(filename, encoding="utf-8") as file:
-            word_bank = []
-            for line in file:
-                cleaned = line.strip().lstrip("\ufeff").upper()
-                if cleaned:
-                    word_bank.append(cleaned)
-            return word_bank
-    except FileNotFoundError:
-        return ["AGGY", "HOWDY", "BONFIRE", "REVEILLE", "CORPS"][:0] + ["HOWDY", "AGGIE", "REVEL", "KYLE", "CHIRP"]
+KEY_DEFAULT = (129, 131, 132)
+KEY_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]
 
 
-def exist(s, filename="words.txt"):
-    """Check if input s is an existing 5-letter English word."""
-    s = s.upper()
-    try:
-        with open(filename, encoding="utf-8") as file:
-            existing = {line.strip().lstrip("\ufeff").upper() for line in file if line.strip()}
-        return s in existing
-    except FileNotFoundError:
-        # Fallback if words.txt isn't present locally during testing
-        return len(s) == 5 and s.isalpha()
+class WordleScene:
+    def __init__(self, surface, total_rounds=3, max_attempts=6, piece="D"):
+        self.total_rounds = total_rounds
+        self.max_attempts = max_attempts
+        self.piece = piece
 
+        self.w, self.h = surface.get_size()
+        self.font_title = pygame.font.SysFont("arial", 30, bold=True)
+        self.font_tile = pygame.font.SysFont("arial", 28, bold=True)
+        self.font_key = pygame.font.SysFont("arial", 18, bold=True)
+        self.font_msg = pygame.font.SysFont("arial", 20)
+        self.font_big = pygame.font.SysFont("arial", 38, bold=True)
 
-def correctLetter(correct, guess):
-    """
-    Return list of 5 ints:
-      2 = right letter, right index
-      1 = right letter, wrong index
-      0 = not in word
-    """
-    correct = correct.upper()
-    guess = guess.upper()
-    result = [0, 0, 0, 0, 0]
-    occurrence = {}
-    matched = {}
+        # layout (sized to fit a 640x640 window)
+        self.header_h = 56
+        self.tile = max(30, min(60, (self.h - 330) // self.max_attempts - 8))
+        self.gap = 8
+        self.grid_top = self.header_h + 40
+        self.key_w, self.key_h, self.key_gap = 40, 50, 6
 
-    for i in range(5):
-        occurrence[correct[i]] = occurrence.get(correct[i], 0) + 1
+        self.done = False   # popup dismissed, game finished
+        self.won = False    # earned the word piece
+        self.reset()
 
-        if guess[i] == correct[i]:
-            result[i] = 2
-            matched[guess[i]] = matched.get(guess[i], 0) + 1
-        elif guess[i] in correct:
-            result[i] = 1
+    # ---------- game state ----------
+    def reset(self):
+        bank = [w.upper() for w in logic.wordbank()]
+        self.words = random.sample(bank, self.total_rounds)  # different word each round
+        self.round = 0
+        self.done = False
+        self.won = False
+        self.start_round()
 
-    for letter, count in matched.items():
-        occurrence[letter] -= count
+    def start_round(self):
+        self.answer = self.words[self.round]
+        self.guesses = []       # submitted words
+        self.results = []       # list of [0/1/2 x5] per submitted word
+        self.current = ""       # word being typed
+        self.key_state = {}     # letter -> best result so far this round
+        self.state = "playing"  # playing | round_over | game_over
+        self.toast = ""
+        self.toast_until = 0
+        self.shake_until = 0
 
-    for i in range(5):
-        if result[i] == 1:
-            if occurrence.get(guess[i], 0) > 0:
-                occurrence[guess[i]] -= 1
+    def show_toast(self, text, ms=1500):
+        self.toast = text
+        self.toast_until = pygame.time.get_ticks() + ms
+
+    def submit(self):
+        guess = self.current
+        if len(guess) != 5:
+            self.show_toast("The word must be FIVE letters")
+            self.shake_until = pygame.time.get_ticks() + 350
+            return
+        if not logic.exist(guess):
+            self.show_toast("Not a valid English word")
+            self.shake_until = pygame.time.get_ticks() + 350
+            return
+
+        result = logic.correctLetter(self.answer, guess)
+        self.guesses.append(guess)
+        self.results.append(result)
+        self.current = ""
+
+        for ch, r in zip(guess, result):  # keep the best result per letter
+            if r > self.key_state.get(ch, -1):
+                self.key_state[ch] = r
+
+        if result == [2, 2, 2, 2, 2]:
+            self.state = "game_over"
+            self.won = True
+        elif len(self.guesses) == self.max_attempts:
+            if self.round == self.total_rounds - 1:
+                self.state = "game_over"
+                self.won = False
             else:
-                result[i] = 0
+                self.state = "round_over"
 
-    return result
+    # ---------- input ----------
+    def handle_event(self, event):
+        if event.type != pygame.KEYDOWN:
+            return
+        confirm = event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE)
 
+        if self.state == "round_over":
+            if confirm:
+                self.round += 1
+                self.start_round()
+            return
+        if self.state == "game_over":
+            if confirm:
+                self.done = True
+            return
 
-def create_letter_tracker():
-    alphabet = "QWERTYUIOPASDFGHJKLZXCVBNM"
-    return {ch: -1 for ch in alphabet}
+        if event.key == pygame.K_BACKSPACE:
+            self.current = self.current[:-1]
+        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self.submit()
+        else:
+            ch = event.unicode.upper()
+            if len(ch) == 1 and ch.isascii() and ch.isalpha() and len(self.current) < 5:
+                self.current += ch
 
+    # ---------- drawing ----------
+    def draw(self, screen):
+        screen.fill(BG)
+        self._header(screen)
+        self._grid(screen)
+        self._keyboard(screen)
+        self._toast(screen)
+        if self.state == "round_over":
+            self._overlay(
+                screen,
+                "You FAILED this round!",
+                f"The word was {self.answer}. {self.total_rounds - self.round - 1} round(s) left.",
+                "Press ENTER for a new word",
+            )
+        elif self.state == "game_over":
+            if self.won:
+                self._overlay(
+                    screen,
+                    "You found the word!",
+                    f'You got a word piece... it\'s... "{self.piece}"!!',
+                    "Press ENTER to continue",
+                )
+            else:
+                self._overlay(
+                    screen,
+                    "You failed this game!",
+                    "You are not a qualified Aggie. No word piece for you.",
+                    "Press ENTER to continue",
+                )
 
-def letter_used(guess, result, tracker=None):
-    """Update and return the letter status map (-1 unused, 0 gray, 1 yellow, 2 green)."""
-    letters = tracker if tracker is not None else create_letter_tracker()
-    for i in range(5):
-        ch = guess[i].upper()
-        new_state = result[i]
-        prev_state = letters.get(ch, -1)
-        # Keep the strongest clue seen so far (2 > 1 > 0 > -1)
-        if new_state > prev_state:
-            letters[ch] = new_state
-    return letters
+    def _text(self, screen, text, font, color, cx, cy):
+        surf = font.render(text, True, color)
+        screen.blit(surf, surf.get_rect(center=(cx, cy)))
 
+    def _header(self, screen):
+        pygame.draw.rect(screen, MAROON, (0, 0, self.w, self.header_h))
+        self._text(screen, "AGGIE WORDLE", self.font_title, TEXT, self.w // 2, self.header_h // 2)
+        self._text(
+            screen,
+            f"Round {self.round + 1}/{self.total_rounds}   |   "
+            f"Attempt {min(len(self.guesses) + 1, self.max_attempts)}/{self.max_attempts}",
+            self.font_msg, SUBTEXT, self.w // 2, self.header_h + 20,
+        )
 
-# --- Game State Helpers ---
+    def _grid(self, screen):
+        t, g = self.tile, self.gap
+        left = (self.w - (5 * t + 4 * g)) // 2
+        now = pygame.time.get_ticks()
 
-def new_round(bank):
-    word = random.choice(bank)
-    bank.remove(word)
-    board = [["" for _ in range(COLS)] for _ in range(ROWS)]
-    colors = [[TILE_EMPTY for _ in range(COLS)] for _ in range(ROWS)]
-    return word, board, colors, 0, 0, create_letter_tracker()
-
-
-def start_full_game():
-    bank = wordbank()
-    if not bank:
-        return None
-    round_num = 1
-    word_this_round, board, tile_colors, attempt, col, tracker = new_round(bank)
-    return {
-        "bank": bank,
-        "round": round_num,
-        "max_rounds": min(3, len(bank) + 1),
-        "word": word_this_round,
-        "board": board,
-        "tile_colors": tile_colors,
-        "attempt": attempt,
-        "col": col,
-        "tracker": tracker,
-        "message": "",
-        "state": "playing",  # "playing", "round_lost", "won", "game_lost"
-    }
-
-
-# game = start_full_game()
-# if game is None:
-#     pygame.quit()
-#     raise SystemExit  # Note: remove even this if you want zero imports of sys anywhere; `return` inside a main() function works cleanly without sys.
-
-def draw_wordle(screen, event, game, is_initial):
-    if not is_initial:
-        if event.type == pygame.KEYDOWN:
-            if game["state"] in ("won", "game_lost"):
-                if event.key in (pygame.K_RETURN, pygame.K_r):
-                    game = start_full_game()
-
-            elif game["state"] == "round_lost":
-                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                    if game["round"] < game["max_rounds"] and game["bank"]:
-                        game["round"] += 1
-                        (
-                            game["word"],
-                            game["board"],
-                            game["tile_colors"],
-                            game["attempt"],
-                            game["col"],
-                            game["tracker"],
-                        ) = new_round(game["bank"])
-                        game["message"] = f"Round {game['round']} started! New word chosen."
-                        game["state"] = "playing"
-                    else:
-                        game["state"] = "game_lost"
-                        game["message"] = "You failed this game! No word piece earned. Press R to retry."
-
-            elif game["state"] == "playing":
-                row = game["attempt"]
-
-                if event.key == pygame.K_BACKSPACE:
-                    if game["col"] > 0:
-                        game["col"] -= 1
-                        game["board"][row][game["col"]] = ""
-                        game["message"] = ""
-
-                elif event.key == pygame.K_RETURN:
-                    if game["col"] < COLS:
-                        game["message"] = "Invalid input: the word must be FIVE letters."
-                    else:
-                        guess = "".join(game["board"][row])
-                        if not exist(guess):
-                            game["message"] = "Invalid input: must be a valid English word."
-                        else:
-                            codes = correctLetter(game["word"], guess)
-                            for c_idx, code in enumerate(codes):
-                                game["tile_colors"][row][c_idx] = STATUS_TO_COLOR[code]
-
-                            game["tracker"] = letter_used(guess, codes, game["tracker"])
-
-                            if codes == [2, 2, 2, 2, 2]:
-                                game["state"] = "won"
-                                game["message"] = 'Congrats! You got your word piece: "D"! Press R to replay.'
-                            else:
-                                game["attempt"] += 1
-                                game["col"] = 0
-                                if game["attempt"] >= ROWS:
-                                    if game["round"] < game["max_rounds"] and game["bank"]:
-                                        game["state"] = "round_lost"
-                                        rem = game["max_rounds"] - game["round"]
-                                        game["message"] = f"Word was {game['word']}. {rem} round(s) left — press Enter."
-                                    else:
-                                        game["state"] = "game_lost"
-                                        game["message"] = f"Word was {game['word']}. You failed this game! Press R."
-                                else:
-                                    game["message"] = ""
-
+        for row in range(self.max_attempts):
+            offset = 0
+            if row == len(self.guesses) and now < self.shake_until:
+                offset = 8 if (now // 40) % 2 else -8
+            for col in range(5):
+                rect = pygame.Rect(left + col * (t + g) + offset, self.grid_top + row * (t + g), t, t)
+                letter = ""
+                if row < len(self.guesses):
+                    letter = self.guesses[row][col]
+                    pygame.draw.rect(screen, STATE_COLORS[self.results[row][col]], rect, border_radius=4)
+                elif row == len(self.guesses) and self.state == "playing" and col < len(self.current):
+                    letter = self.current[col]
+                    pygame.draw.rect(screen, TILE_FILLED, rect, width=2, border_radius=4)
                 else:
-                    ch = event.unicode.upper()
-                    if len(ch) == 1 and "A" <= ch <= "Z" and game["col"] < COLS:
-                        game["board"][row][game["col"]] = ch
-                        game["col"] += 1
-                        game["message"] = ""
+                    pygame.draw.rect(screen, TILE_EMPTY, rect, width=2, border_radius=4)
+                if letter:
+                    self._text(screen, letter, self.font_tile, TEXT, rect.centerx, rect.centery)
 
-    # --- Draw ---
-    screen.fill(BG_COLOR)
+    def _keyboard(self, screen):
+        kw, kh, kg = self.key_w, self.key_h, self.key_gap
+        top = self.grid_top + self.max_attempts * (self.tile + self.gap) + 14
+        for r, row in enumerate(KEY_ROWS):
+            left = (self.w - (len(row) * kw + (len(row) - 1) * kg)) // 2
+            for i, ch in enumerate(row):
+                rect = pygame.Rect(left + i * (kw + kg), top + r * (kh + kg), kw, kh)
+                s = self.key_state.get(ch)
+                pygame.draw.rect(screen, KEY_DEFAULT if s is None else STATE_COLORS[s], rect, border_radius=5)
+                self._text(screen, ch, self.font_key, TEXT, rect.centerx, rect.centery)
 
-    title = font_title.render(f"AGGIE WORDLE  ·  Round {game['round']}/{game['max_rounds']}", True, WHITE)
-    screen.blit(title, title.get_rect(center=(WIDTH // 2, 34)))
+    def _toast(self, screen):
+        if self.toast and pygame.time.get_ticks() < self.toast_until:
+            surf = self.font_msg.render(self.toast, True, (0, 0, 0))
+            box = surf.get_rect(center=(self.w // 2, self.header_h + 20)).inflate(24, 12)
+            pygame.draw.rect(screen, (240, 240, 240), box, border_radius=6)
+            screen.blit(surf, surf.get_rect(center=box.center))
 
-    # 6x5 Guess Grid
-    for r in range(ROWS):
-        for c in range(COLS):
-            x = START_X + c * (TILE_SIZE + GAP)
-            y = START_Y + r * (TILE_SIZE + GAP)
-            rect = pygame.Rect(x, y, TILE_SIZE, TILE_SIZE)
+    def _overlay(self, screen, title, line, prompt):
+        shade = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, 200))
+        screen.blit(shade, (0, 0))
+        cy = self.h // 2
+        self._text(screen, title, self.font_big, TEXT, self.w // 2, cy - 50)
+        self._text(screen, line, self.font_msg, TEXT, self.w // 2, cy + 5)
+        self._text(screen, prompt, self.font_msg, SUBTEXT, self.w // 2, cy + 50)
 
-            fill = game["tile_colors"][r][c]
-            pygame.draw.rect(screen, fill, rect, border_radius=4)
 
-            if fill == TILE_EMPTY:
-                border = TILE_ACTIVE if game["board"][r][c] else TILE_BORDER
-                pygame.draw.rect(screen, border, rect, width=2, border_radius=4)
+# =====================================================================
+# Functions that main.py calls
+# =====================================================================
+def start_full_game():
+    """Create a fresh game. Call after the 640x640 display has been set."""
+    surface = pygame.display.get_surface()
+    scene = WordleScene(surface)
+    return {"scene": scene, "state": "playing"}
 
-            letter = game["board"][r][c]
-            if letter:
-                surf = font_tile.render(letter, True, WHITE)
-                screen.blit(surf, surf.get_rect(center=rect.center))
 
-    # Status / Feedback Message
-    if game["message"]:
-        msg_surf = font_msg.render(game["message"], True, WHITE)
-        screen.blit(msg_surf, msg_surf.get_rect(center=(WIDTH // 2, 532)))
+def draw_wordle(screen, event, game, first_draw=False):
+    """
+    Handle one event (skipped when first_draw is True or event is None),
+    redraw the Wordle screen, flip the display, and return the game dict.
+    Safe to call every frame with event=None so animations/messages update.
+    """
+    scene = game["scene"]
+    if event is not None and not first_draw:
+        scene.handle_event(event)
 
-    # Letter Tracker Keyboard Display
-    key_w, key_h, key_gap = 42, 42, 6
-    kb_start_y = 500
-    for r_idx, row_keys in enumerate(KEYBOARD_ROWS):
-        row_w = len(row_keys) * key_w + (len(row_keys) - 1) * key_gap
-        start_x = (WIDTH - row_w) // 2
-        y = kb_start_y + r_idx * (key_h + key_gap)
-        for c_idx, k in enumerate(row_keys):
-            x = start_x + c_idx * (key_w + key_gap)
-            k_rect = pygame.Rect(x, y, key_w, key_h)
-            state_code = game["tracker"].get(k, -1)
-            k_color = STATUS_TO_COLOR[state_code]
-            pygame.draw.rect(screen, k_color, k_rect, border_radius=4)
-            k_surf = font_key.render(k, True, WHITE)
-            screen.blit(k_surf, k_surf.get_rect(center=k_rect.center))
-
-    # footer_surf = font_sub.render("Type A-Z · Backspace to delete · Enter to guess · R to restart · Esc to quit", True, TEXT_MUTED)
-    # screen.blit(footer_surf, footer_surf.get_rect(center=(WIDTH // 2, 746)))
-
+    scene.draw(screen)
     pygame.display.flip()
-    return game
 
+    if scene.done:
+        game["state"] = "won" if scene.won else "lost"
+    return game

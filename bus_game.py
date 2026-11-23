@@ -2,6 +2,7 @@ import random
 def bus_game(seat_num):
     seat_list, open_seats = generate_seats(seat_num)
     
+    
 
 
 def generate_seats(seat_num):
